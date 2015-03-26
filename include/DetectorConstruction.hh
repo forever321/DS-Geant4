@@ -178,12 +178,6 @@ class DetectorConstruction:public G4VUserDetectorConstruction {
     G4LogicalVolume* logicBaBigRing;
     G4VPhysicalVolume* physiBaBigRing;
 
-    G4double BaSmallRingDiameter;
-    G4double BaSmallRingThickness;
-    G4Tubs* solidBaSmallRing;
-    G4LogicalVolume* logicBaSmallRing;
-    G4VPhysicalVolume* physiBaSmallRing;
-
     G4double BaKaptonFoilDiameter;
     G4double BaKaptonFoilThickness;
     G4Tubs* solidBaKaptonFoil;

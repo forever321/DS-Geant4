@@ -101,7 +101,7 @@ DetectorConstruction::DetectorConstruction() {
     
     //45Ca source
     CaHoleDiameter = 15 * mm;
-    CaRingMaterial = man->FindOrBuildMaterial("G4_Al");;
+    CaRingMaterial = man->FindOrBuildMaterial("G4_Al");
     
     CaSmallRingDiameter = 22.5 * mm - MacroGap;
     CaSmallRingThickness = 1.6 * mm;
@@ -109,8 +109,16 @@ DetectorConstruction::DetectorConstruction() {
     CaKaptonFoilDiameter = 22.5 * mm - MacroGap;
     CaKaptonFoilThickness = 0.04 * mm; 
     CaKaptonFoilMaterial = man->FindOrBuildMaterial("G4_KAPTON");
+
+    //133Ba source
+    BaHoleDiameter = 15 * mm;
+    BaRingMaterial = man->FindOrBuildMaterial("G4_Al");
+
+    BaKaptonFoilDiameter = 23. * mm - MacroGap;
+    BaKaptonFoilThickness = 0.04 * mm;
+    BaKaptonFoilMaterial = man->FindOrBuildMaterial("G4_KAPTON");
     
-    SourceName = "Ca";
+    SourceName = "Ba";
 }
 
 G4VPhysicalVolume *
@@ -229,6 +237,16 @@ DetectorConstruction::ConstructCalorimeter() {
     solidCaKaptonFoil = new G4Tubs("CaKaptonFoil",0,CaKaptonFoilDiameter/2,CaKaptonFoilThickness/2,0,twopi);
     logicCaKaptonFoil = new G4LogicalVolume(solidCaKaptonFoil, CaKaptonFoilMaterial,"CaKaptonFoil");
 
+    //133Ba source
+    const G4double BaBRInner[] = {7.5 * mm, 7.5 * mm, 11.5 * mm, 11.5 * mm};
+    const G4double BaBROuter[] = {16. * mm, 16. * mm, 16. * mm, 16. * mm};
+    const G4double BaBRzPlane[] = {0. * mm, 1.0 * mm, 1.0 * mm, 4.0 * mm};
+    solidBaBigRing = new G4Polycone("solidBaBigRing", 0. * deg, 360. * deg, 4, BaBRzPlane, BaBRInner, BaBROuter);
+    logicBaBigRing = new G4LogicalVolume(solidBaBigRing, BaRingMaterial, "BaBigRing");
+
+    solidBaKaptonFoil = new G4Tubs("BaKaptonFoil", 0, BaKaptonFoilDiameter/2, BaKaptonFoilThickness/2, 0, twopi);
+    logicBaKaptonFoil = new G4LogicalVolume(solidBaKaptonFoil, BaKaptonFoilMaterial, "BaKaptonFoil");
+
     
     if(SourceName=="Ca"){
         ZPos = -1 * mm;
@@ -238,6 +256,14 @@ DetectorConstruction::ConstructCalorimeter() {
         cout << "Ca source position: " << (ZPos + CaKaptonFoilThickness/2)/mm << endl;
         ZPos += CaKaptonFoilThickness + MacroGap;
         physiCaSmallRing = new G4PVPlacement(0,G4ThreeVector(0,DetYOffset, ZPos + CaSmallRingThickness/2),logicCaSmallRing, "CaSmallRing",logicWorld,false,0);
+    }
+
+    else if(SourceName=="Ba"){
+        ZPos = -1 * mm;
+        physiBaBigRing = new G4PVPlacement(0, G4ThreeVector(0, DetYOffset, ZPos), logicBaBigRing, "BaBigRing", logicWorld, false, 0);
+        ZPos += 1 * mm + MacroGap; //1 mm for the inner thickness of the Ba Big Ring
+        physiBaKaptonFoil = new G4PVPlacement(0, G4ThreeVector(0, DetYOffset, ZPos + BaKaptonFoilThickness/2), logicBaKaptonFoil, "BaKaptonFoil", logicWorld, false, 0);
+        cout << "Ba source position: " << (ZPos + BaKaptonFoilThickness/2)/mm << endl;
     }
 /*
     //Bi-207 source
@@ -276,11 +302,14 @@ void DetectorConstruction::SetSource(G4String ns){
 	SourceName=ns;
 	if(SourceName=="Ca"){SourceInd=1;};
 	if(SourceName=="Bi"){SourceInd=2;};
+        if(SourceName=="Ba"){SourceInd=3;};
 }
 
 G4VPhysicalVolume* DetectorConstruction::GetFoilVol(){
     if(SourceInd==1){ //it's the Ca source
         return physiCaKaptonFoil;
+    }else if(SourceInd==3){
+        return physiBaKaptonFoil;
     }else{
         return physiTiWindow;
     }
