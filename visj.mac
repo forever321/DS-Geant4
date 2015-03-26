@@ -1,0 +1,21 @@
+/twodets/geometry/SelectSource Ca
+#/twodets/geometry/SelectSource Bi
+
+/twodets/phys/LoadBetaSpectrum 45Ca_Leuven_full.spectrum
+/run/initialize
+
+/vis/open HepRepXML
+#/vis/open DAWNFILE
+/vis/drawVolume
+/vis/scene/add/trajectories
+/vis/scene/endOfEventAction accumulate
+/vis/scene/endOfRunAction accumulate
+
+
+/tracking/verbose 2
+#/gun/particle geantino
+#/gun/direction 0 0 -1
+#/gun/position 0 5 2 cm
+
+/run/beamOn 1
+/vis/viewer/flush

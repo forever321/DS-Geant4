@@ -1,0 +1,11 @@
+/twodets/geometry/SelectSource Ca
+
+/twodets/phys/LoadBetaSpectrum 45Ca_Leuven_full.spectrum
+/run/initialize
+
+/process/em/fluo true
+/process/em/auger true
+/process/em/pixe true
+
+/run/beamOn 100000
+/vis/viewer/flush

@@ -1,0 +1,79 @@
+#ifndef MySpectrumGenerator_h
+#define MySpectrumGenerator_h 1
+
+#include "globals.hh"
+#include <complex>
+
+using namespace std;
+
+class MySpectrumGenerator {
+
+  public:
+
+    MySpectrumGenerator();
+    MySpectrumGenerator(G4double A, G4double Z, G4double E0);
+    ~MySpectrumGenerator();
+
+    G4double GetRandomEnergy();
+    G4double Spectrum(G4double Energy);
+
+    G4double GetMassNumber() {
+	return MassNumber;
+    };
+    G4double GetDaughterProtonNumber() {
+	return DaughterProtonNumber;
+    };
+
+    void SetMass(double mass);
+    void SetDaughterZ(double Z);
+    void SetEndPointEnergy(double e0);
+
+    void DumpSpectrum(G4String fname);
+    void DumpH0(G4String fname);
+    void DumpRadCorr(G4String fname);
+    void DumpL0(G4String fname);
+    void DumpCC(G4String fname);
+    void DumpRN(G4String fname);
+
+    void ReadFormFactors(G4String fname);
+
+    void DoFormFactors(G4bool ff);
+
+    complex < double >mycomplex;
+
+  private:
+    G4bool formfactors;
+
+    complex < double >cgamma(complex < double >, int);
+    double complex_abs(complex < double >);
+
+    double FermiFunction_0(double, double, double, double);
+
+    //form factors
+    double fa, fb, fc, fc2, fd, fg, fh, ff, fj2, fj3;
+    double ffbeta;
+    double H0(G4double);
+
+    G4double MassNumber, DaughterProtonNumber, EndPointEnergy;
+    G4double gamma1, r_0, R, W_0, SpectrumMaximum, Maximum, a[7], b[7][6];
+    float InvertedSpectrum(float Energy);
+
+    void InitFormFactors();
+
+    G4double L0_C(G4double Ekin);
+    G4double ArcTanH(G4double x);
+    G4double UCorrections(G4double p_e);
+    G4double CCorrections(G4double W);
+    G4double L0Corrections(G4double W);
+
+    G4double RadiativeCorrections(G4double W);
+    G4double RecoilingNucleus(G4double W);
+    G4double Spence(G4double x);
+
+    void Initialize();
+#define MAX_SPECTRUM 5000
+    double emprob[MAX_SPECTRUM];
+
+};
+
+#endif

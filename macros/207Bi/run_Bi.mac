@@ -1,0 +1,17 @@
+#/twodets/geometry/SelectSource Ca
+/twodets/geometry/SelectSource Bi
+
+/run/initialize
+
+/process/em/fluo true
+/process/em/auger true
+/process/em/pixe true
+
+/twodets/SetOutputFileName 207Bi_0.root
+/run/beamOn 50000000
+/twodets/SetOutputFileName 207Bi_1.root
+/run/beamOn 50000000
+/twodets/SetOutputFileName 207Bi_2.root
+/run/beamOn 50000000
+/twodets/SetOutputFileName 207Bi_3.root
+/run/beamOn 50000000

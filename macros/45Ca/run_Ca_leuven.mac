@@ -1,0 +1,14 @@
+/twodets/geometry/SelectSource Ca
+#/twodets/geometry/SelectSource Bi
+
+/twodets/phys/LoadBetaSpectrum 45Ca_Leuven_full.spectrum
+/run/initialize
+
+/twodets/SetOutputFileName 45Ca_Leuven_0.root
+/run/beamOn 50000000
+/twodets/SetOutputFileName 45Ca_Leuven_1.root
+/run/beamOn 50000000
+/twodets/SetOutputFileName 45Ca_Leuven_2.root
+/run/beamOn 50000000
+/twodets/SetOutputFileName 45Ca_Leuven_3.root
+/run/beamOn 50000000

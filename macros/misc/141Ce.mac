@@ -1,0 +1,26 @@
+/twodets/geometry/SelectSource Ca
+#/twodets/geometry/SelectSource Bi
+
+/twodets/phys/LoadBetaSpectrum 45Ca_Leuven_full.spectrum
+/run/initialize
+
+/gun/particle ion
+/gun/ion 58 141 0 0 
+
+/process/em/fluo true
+/process/em/auger true
+/process/em/pixe true
+
+/twodets/SetOutputFileName 141Ce_0.root
+/run/beamOn 10000000
+/twodets/SetOutputFileName 141Ce_1.root
+/run/beamOn 10000000
+/twodets/SetOutputFileName 141Ce_2.root
+/run/beamOn 10000000
+/twodets/SetOutputFileName 141Ce_3.root
+/run/beamOn 10000000
+/twodets/SetOutputFileName 141Ce_4.root
+/run/beamOn 10000000
+/twodets/SetOutputFileName 141Ce_5.root
+/run/beamOn 10000000
+

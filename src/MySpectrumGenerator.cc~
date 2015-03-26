@@ -1,0 +1,718 @@
+#include <math.h>
+#include <stdlib.h>
+
+#include <gsl/gsl_math.h>
+#include <gsl/gsl_sf_dilog.h>
+#include <gsl/gsl_sf_gamma.h>
+
+#include "globals.hh"
+#include "Randomize.hh"
+#include "MySpectrumGenerator.hh"
+
+#define NRANSI
+#define ITMAX 100
+#define CGOLD 0.3819660
+#define ZEPS 1.0e-10
+#define SHFT(a,b,c,d) (a)=(b);(b)=(c);(c)=(d);
+#define TOL 1.0e-6
+
+MySpectrumGenerator::MySpectrumGenerator() {
+    //initialize to 60Co, but the user should init it via the macro commands!
+    //all the energy should go in keV, without units!
+    MassNumber = 60;
+    DaughterProtonNumber = 28;
+    EndPointEnergy = 318;
+    G4cout << "Default constructor of MySpectrumGenerator... " << G4endl;
+    formfactors = false;
+    Initialize();
+}
+
+MySpectrumGenerator::MySpectrumGenerator(G4double A, G4double Z, G4double E0) {
+    //initialize to 60Co, but the user should init it via the macro commands!
+    //all the energy should go in keV, without units!
+    MassNumber = A;
+    DaughterProtonNumber = Z;
+    EndPointEnergy = E0;
+    Initialize();
+}
+
+void
+  MySpectrumGenerator::Initialize() {
+    G4cout << "Initializing MySpectrumGenerator... " << G4endl;
+    G4cout << "\t\t with A=" << MassNumber << G4endl;
+    G4cout << "\t\t with Z=" << DaughterProtonNumber << G4endl;
+    G4cout << "\t\t with E0=" << EndPointEnergy << "keV" << G4endl;
+
+    if(EndPointEnergy > MAX_SPECTRUM) {
+        G4cout << "The endpoint energy is too high. Increase the MAX_SPECTRUM constant in MySpectrumGenerator.cc" << G4endl;
+        exit(-1);
+    }
+    gamma1 = sqrt(1. - pow(fine_structure_const * DaughterProtonNumber, 2));
+    r_0 = (1.15 + 1.80 * pow(MassNumber, -2. / 3.) - 1.20 * pow(MassNumber, -4. / 3.)) * fermi * electron_mass_c2 / hbarc;      //this is in natural units  
+
+
+    R = r_0 * pow(MassNumber, 1. / 3.); //this one as well
+    W_0 = EndPointEnergy * keV / electron_mass_c2 + 1.;
+
+    b[0][0] = 0.115;
+    b[0][1] = -1.8123;
+    b[0][2] = 8.2498;
+    b[0][3] = -11.223;
+    b[0][4] = -14.854;
+    b[0][5] = 32.086;
+    b[1][0] = -0.00062;
+    b[1][1] = 0.007165;
+    b[1][2] = 0.01841;
+    b[1][3] = -0.53736;
+    b[1][4] = 1.2691;
+    b[1][5] = -1.5467;
+    b[2][0] = 0.02482;
+    b[2][1] = -0.5975;
+    b[2][2] = 4.84199;
+    b[2][3] = -15.3374;
+    b[2][4] = 23.9774;
+    b[2][5] = -12.6534;
+    b[3][0] = -0.14038;
+    b[3][1] = 3.64953;
+    b[3][2] = -38.8143;
+    b[3][3] = 172.1368;
+    b[3][4] = -346.708;
+    b[3][5] = 288.7873;
+    b[4][0] = 0.008152;
+    b[4][1] = -1.15664;
+    b[4][2] = 49.9663;
+    b[4][3] = -273.711;
+    b[4][4] = 657.6292;
+    b[4][5] = -603.7033;
+    b[5][0] = 1.2145;
+    b[5][1] = -23.9931;
+    b[5][2] = 149.9718;
+    b[5][3] = -471.2985;
+    b[5][4] = 662.1909;
+    b[5][5] = -305.6804;
+    b[6][0] = -1.5632;
+    b[6][1] = 33.4192;
+    b[6][2] = -255.1333;
+    b[6][3] = 938.5297;
+    b[6][4] = -1641.2845;
+    b[6][5] = 1095.358;
+
+    for(G4int i = 0; i < 7; i++) {
+        a[i] = 0;
+        for(G4int j = 0; j < 6; j++) {
+            a[i] += b[i][j] * pow(fine_structure_const * DaughterProtonNumber, j);
+        }
+    }
+
+
+    G4int i;
+    emprob[0] = Spectrum(1 * keV);      //this would be inf otherwise
+    for(i = 1; i < MAX_SPECTRUM; i++) { //make a histogram of spectrum values
+        if(i > EndPointEnergy)break;
+        emprob[i] = Spectrum(i * keV);
+
+        //cout <<i<<": "<<emprob[i]<<endl;
+        if(emprob[i] > Maximum)Maximum = emprob[i];
+    }
+    Maximum *= 1.01;            //increase it a bit for numerical safety!
+
+    for(int j = i - 1; j < MAX_SPECTRUM; j++) {
+        emprob[j] = 0;
+    }
+    /*
+    for(int j = 0; j < MAX_SPECTRUM; j++) {
+        cout << j << ": " << emprob[j] << endl;
+    }
+    */
+
+}
+
+MySpectrumGenerator::~MySpectrumGenerator() {
+}
+
+G4double
+MySpectrumGenerator::Spectrum(G4double Energy) {
+    G4double Result;
+    G4double W = Energy / electron_mass_c2 + 1.;
+    G4double p_e = sqrt(pow(W, 2) - 1.);
+    G4double beta = sqrt(1. - pow(1. / W, 2));
+    G4double nu = fine_structure_const * DaughterProtonNumber / beta;
+
+    G4double F_0 = FermiFunction_0(gamma1, p_e, R, nu);
+
+    G4double LC = L0Corrections(W);
+
+    G4double CC = CCorrections(W);
+
+    G4double RC = RadiativeCorrections(W);
+
+    Result = CC * LC * F_0 * p_e * W * pow(W_0 - W, 2) * RC;
+
+    if(formfactors)
+        Result *= H0(Energy + electron_mass_c2);
+
+    //uncomment if you only want the statistical shape
+    //return p_e * W * pow(W_0 - W, 2);
+
+    /* 
+       G4cout << "Energy = "  << Energy << G4endl;
+       G4cout << "W = "  << W << G4endl;
+       G4cout << "p_e = "  << p_e << G4endl;
+       G4cout << "gamma1 = "  << gamma1 << G4endl;
+       G4cout << "R = "  << R << G4endl;
+       G4cout << "intermidiate F0 = " << pow(2.*p_e*R, -2.*(1. - gamma1)) << G4endl;
+       //G4cout << "sqr(complex_gamma) = " << complex_abs(cgamma(carg,0))*complex_abs(cgamma(carg,0)) << G4endl;  * 
+       G4cout << "F0 = "  << F_0 << G4endl;
+       G4cout << "L0 = "  << L_0 << G4endl;
+       G4cout << "C = " << C << G4endl;
+       G4cout << "Result = "  << Result << G4endl;
+     */
+    //G4cout << "Energy="<<Energy<<" W="<<W<<" p_e="<<p_e<<" C="<<C<<"L0="<<L_0<<" F0="<<F_0<<G4endl; 
+
+    return Result;
+}
+
+float
+  MySpectrumGenerator::InvertedSpectrum(float Energy) {
+    return -Spectrum((G4double) Energy * keV);
+}
+
+G4double
+MySpectrumGenerator::GetRandomEnergy() {
+    G4double RandomEnergy, RandomOrdinate;
+    //std::cout << "Max En: "<< EndPointEnergy<<endl;
+    do {
+        RandomEnergy = G4UniformRand() * EndPointEnergy;
+        RandomOrdinate = G4UniformRand() * Maximum;
+    } while(RandomOrdinate > emprob[(int) round(RandomEnergy)]);
+    //while (RandomOrdinate > Spectrum(RandomEnergy));   
+    //std::cout<<"Max; Returning RandomEnergy "<< RandomEnergy << endl;
+    return RandomEnergy;        //this is just a number. one should multiply it with keV
+}
+
+
+
+double
+  MySpectrumGenerator::complex_abs(complex < double >number) {
+    double
+      y,
+        re,
+        im;
+
+    re = real(number);
+    im = imag(number);
+
+    y = sqrt(re * re + im * im);
+
+    return y;
+}
+
+//  cgamma.cpp -- Complex gamma function.
+//      Algorithms and coefficient values from "Computation of Special
+//      Functions", Zhang and Jin, John Wiley and Sons, 1996.
+//
+//  (C) 2003, C. Bond. All rights reserved.
+//
+//  Returns gamma function or log(gamma) for complex argument 'z'.
+//
+//  OPT value       function
+//  ---------       --------
+//      0           complex gamma
+//      1           complex log(gamma)
+//
+//  Returns (1e308,0) if the real part of the argument is a negative integer
+//  or 0 or exceeds 171.
+//
+complex < double >
+MySpectrumGenerator::cgamma(complex < double >z, int OPT) {
+    complex < double >g, z0, z1;
+    double x0, q1, q2, x, y, th, th1, th2, g0, gr, gi, gr1, gi1;
+    double na, t, x1, y1, sr, si;
+    int i, j, k;
+
+    x1 = 0;
+    na = 0;
+
+    static double a[] = {
+        8.333333333333333e-02,
+        -2.777777777777778e-03,
+        7.936507936507937e-04,
+        -5.952380952380952e-04,
+        8.417508417508418e-04,
+        -1.917526917526918e-03,
+        6.410256410256410e-03,
+        -2.955065359477124e-02,
+        1.796443723688307e-01,
+        -1.39243221690590
+    };
+
+    x = real(z);
+    y = imag(z);
+    if(x > 171)
+        return complex < double >(1e308, 0);
+    if((y == 0.0) && (x == (int) x) && (x <= 0.0))
+        return complex < double >(1e308, 0);
+    else
+if(x < 0.0) {
+    x1 = x;
+    y1 = y;
+    x = -x;
+    y = -y;
+}
+    x0 = x;
+    if(x <= 7.0) {
+        na = (int) (7.0 - x);
+        x0 = x + na;
+    }
+    q1 = sqrt(x0 * x0 + y * y);
+    th = atan(y / x0);
+    gr = (x0 - 0.5) * log(q1) - th * y - x0 + 0.5 * log(2.0 * M_PI);
+    gi = th * (x0 - 0.5) + y * log(q1) - y;
+    for(k = 0; k < 10; k++) {
+        t = pow(q1, -1.0 - 2.0 * k);
+        gr += (a[k] * t * cos((2.0 * k + 1.0) * th));
+        gi -= (a[k] * t * sin((2.0 * k + 1.0) * th));
+    }
+    if(x <= 7.0) {
+        gr1 = 0.0;
+        gi1 = 0.0;
+        for(j = 0; j < na; j++) {
+            gr1 += (0.5 * log((x + j) * (x + j) + y * y));
+            gi1 += atan(y / (x + j));
+        }
+        gr -= gr1;
+        gi -= gi1;
+    }
+    if(x1 < 0.0) {
+        q1 = sqrt(x * x + y * y);
+        th1 = atan(y / x);
+        sr = -sin(M_PI * x) * cosh(M_PI * y);
+        si = -cos(M_PI * x) * sinh(M_PI * y);
+        q2 = sqrt(sr * sr + si * si);
+        th2 = atan(si / sr);
+        if(sr < 0.0)
+            th2 += M_PI;
+        gr = log(M_PI / (q1 * q2)) - gr;
+        gi = -th1 - th2 - gi;
+        x = x1;
+        y = y1;
+    }
+    if(OPT == 0) {
+        g0 = exp(gr);
+        gr = g0 * cos(gi);
+        gi = g0 * sin(gi);
+    }
+    g = complex < double >(gr, gi);
+    return g;
+}
+
+
+double
+  MySpectrumGenerator::FermiFunction_0(double g1, double pe, double R, double nu) {
+    complex < double >
+        carg;
+
+    carg = complex < double >(g1, nu);
+    double
+      GammaRes = gsl_sf_gamma(2 * g1 + 1);
+    GammaRes *= GammaRes;
+    //cout << "complex_abs(cgamma) = " <<  complex_abs(cgamma(carg,0)) << endl;
+    //return 2.*(g1+1)*pow(2*pe*R, -2.*(1.-g1))*exp(M_PI*nu)*pow(complex_abs(cgamma(carg,0)),2);
+    return 2. * (g1 + 1) / GammaRes * pow(2 * pe * R, -2. * (1. - g1)) * exp(M_PI * nu) * pow(complex_abs(cgamma(carg, 0)), 2);
+}
+
+G4double
+MySpectrumGenerator::Spence(G4double x) {
+    //return 1;
+    return -gsl_sf_dilog(x);
+}
+
+G4double
+MySpectrumGenerator::RadiativeCorrections(G4double W) {
+    //return 1;
+
+    //only the 1st order corrections
+    //based on the 5th Wilkinson article 
+    G4double beta = sqrt(1.0 - 1.0 / W / W);
+
+    G4double g = 3 * log(proton_mass_c2 / electron_mass_c2) - 0.75 + 4 * (atanh(beta) / beta - 1) * ((W_0 - W) / 3 / W - 1.5 + log(2 * (W_0 - W)));
+    g += 4.0 / beta * Spence(2 * beta / (1 + beta)) + atanh(beta) / beta * (2 * (1 + beta * beta) + sqr(W_0 - W) / 6 / W / W - 4 * atanh(beta));
+
+    //return 1+fine_structure_const/2/pi*g;
+
+    G4double d1f, d2, d3, d14;
+    G4double r_0 = 1.2;         //in fm
+    G4double LambdaOverM = 0.665 / r_0 / pow(MassNumber, 1. / 3.);      // this is dimensionless
+    G4double gamma_E = 0.5772;
+    G4double g_A = 1.265;
+    G4double g_M = 4.706;
+
+    d14 = log(proton_mass_c2 / electron_mass_c2) - 5. / 3. * log(2 * W) + 43. / 18.;
+
+    d1f = log(LambdaOverM) - gamma_E + 4. / 3. - log(sqrt(10.0)) - 3.0 / 2.0 / M_PI / sqrt(10.0) * (0.5 + gamma_E + log(sqrt(10) * LambdaOverM));
+
+    d2 = 3.0 / 2.0 / M_PI / sqrt(10.0) * LambdaOverM * (1 - M_PI / 2 / sqrt(10) * LambdaOverM);
+
+    d3 = 3.0 * g_A * g_M / M_PI / sqrt(10.0) * LambdaOverM * (gamma_E - 1 + log(sqrt(10) * LambdaOverM) - M_PI / 4 / sqrt(10) * LambdaOverM);
+
+    G4double O2corr = fine_structure_const * fine_structure_const * DaughterProtonNumber * (d14 + d1f + d2 + d3);
+
+
+    //return 1 + fine_structure_const/2/pi*g + O2corr;
+
+    G4double aa = M_PI / 3. - 1.5 / M_PI;
+    G4double bb = 0.2240;
+    G4double ff = log(2 * W) - 5. / 6.;
+    G4double gg = 0.5 * (pow(log(R), 2.) - pow(log(2 * W), 2.)) + 5. / 3. * log(2 * R * W);
+
+    G4double O3corr = fine_structure_const * fine_structure_const * fine_structure_const * DaughterProtonNumber * DaughterProtonNumber;
+    O3corr *= aa * log(sqrt(10) / R / W) + bb * ff + 4. / 3. / M_PI * gg - 0.649 * log(2 * W_0);
+
+    return 1 + fine_structure_const / 2 / pi * g + O2corr + O3corr;
+
+
+}
+
+/*
+//this is from F. Calaprice, B. Holstein, Nuclear Physics A (273), 1976 and/or Wilkinson 1995
+//the deltas from Jaus, Nucl Phys A, 1970 and Jaus, Phys Letters 1972, correction Jaus, PRD 1987
+        //const G4double MassOfNucleon
+        G4double r_0 = 1.15 + 1.80*pow(MassNumber, -2./3.) - 1.20 * pow(MassNumber, -4./3.); //this is now in fm
+        G4double R = r_0 * pow(MassNumber, 1./3.);
+
+        G4double delta1,delta2,delta3;
+
+        //Delta 1
+        G4double g = 3 * log(proton_mass_c2 / electron_mass_c2) - 0.75 + 4*(ArcTanH(beta)/beta - 1)*((W_0-W)/3/W - 1.5 + log(2*(W_0-W))) + 4/beta*Spence(2*beta/(1+beta))+ArcTanH(beta)/beta * (2*(1+beta*beta)+sqr(W_0-W)/6/W/W - 4*ArcTanH(beta));
+        delta1 = fine_structure_const/2/pi*g;
+
+        //Delta 2
+        G4double d1f,d2,d3,d14;
+        G4double NaturalLength = hbarc / electron_mass_c2; 
+        G4double lambda = sqrt(6.)/(R*fermi/NaturalLength); //in natural units
+
+        G4double LambdaOverM = 0.665 / r_0 / pow(MassNumber, 1./3.);
+        G4double LambdaOverM_alt = 0.5 / pow(MassNumber,1./3.);
+
+        //G4cout << "r_0: " << r_0 << G4endl;
+        //G4cout << "LambdaOverM: " << LambdaOverM << " LambdaOverM_alt: " << LambdaOverM_alt << G4endl;
+
+	G4double ga = 1.25;
+        G4double mv = 3.7;
+        G4double gamma1 = 0.5772;
+
+        d14 = log(MassOfNucleon) - 5./3.*log(2*W) + 43./18.;
+*/
+/*
+        //Using the Uniformly Charged Sphere model for the nucleus
+        d1f = log(LambdaOverM) - (gamma1 - 4./3. + log(sqrt(10))) - 3./sqrt(10)/pi*(LambdaOverM)*(0.5+gamma1+log(sqrt(10))-log(LambdaOverM));
+        d2 = 1.5/pi/sqrt(10)*LambdaOverM*(1.-pi/2./sqrt(10)*LambdaOverM);
+        d3 = 3/pi/sqrt(10)*ga*(1+mv)*LambdaOverM_alt*(gamma1 - 1 + log(sqrt(10)) - log(LambdaOverM_alt) + pi/4/sqrt(10)*LambdaOverM_alt);
+*/
+/*
+        //Using the Gaussian model for the nucleus
+        G4double alpha = (DaughterProtonNumber-2.)/3.;
+        G4double kk = sqrt(1.5*(2.+5.*alpha)/(2.+3.*alpha));
+
+        d1f = log(LambdaOverM) - 0.5*(gamma1 + log(1.5/kk/kk) + 2.*alpha/(2.+3.*alpha)) - 8./sqrt(6*pi*pi*pi)*kk/(2.+3.*alpha)*LambdaOverM *
+                ((1. + gamma1/2. + log(sqrt(6.)/kk/LambdaOverM))*(1.+alpha)+alpha/2.);
+        d2 = 4./sqrt(6*pi*pi*pi)*kk/(2+3*alpha)*LambdaOverM*(1.+alpha-sqrt(pi*pi*pi/96.)*kk*LambdaOverM*(1.+alpha/2.));
+        d3 = 8./sqrt(6*pi*pi*pi)*ga*(1.+mv)*kk/(2.+3.*alpha)*LambdaOverM_alt*((0.5*(gamma1-1.) + log(sqrt(6)/kk/LambdaOverM_alt))*(1.+alpha) + alpha/2. +
+                sqrt(pi*pi*pi/6.)*kk/8.*LambdaOverM_alt);
+
+        delta2 = DaughterProtonNumber*fine_structure_const*fine_structure_const*(d14+d1f+d2+d3);
+        
+        //Delta 3
+        G4double aa = (pi*pi/3. - 1.5)/pi;
+        //G4double RR = 5./3.
+        G4double bb = 3./4./pi*(11./4. - gamma1 - pi*pi/6.);
+        G4double dd = 4./3./pi;
+        G4double ff = log(2*W) - 5./6.;
+        G4double gg = 0.5*(pow(log(R),2.) - pow(log(2*W),2.)) + 5./3.*log(2*R*W);
+        G4double hh = -0.649;
+
+        delta3 = DaughterProtonNumber*DaughterProtonNumber*fine_structure_const*fine_structure_const*fine_structure_const * 
+                        (aa*log(lambda/W) + bb*ff + dd*gg + hh*log(2*W_0));
+        return 1+delta1+delta2+delta3; 
+*/
+
+
+
+G4double
+MySpectrumGenerator::RecoilingNucleus(G4double W) {
+    G4double r0, r1, r2, r3;
+    G4double MassOfNucleus = MassNumber * (proton_mass_c2 / electron_mass_c2);  //in natural units
+    G4double MassOfNucleus2 = MassOfNucleus * MassOfNucleus;
+
+    r0 = -2. * W_0 / 3. / MassOfNucleus - W_0 * W_0 / 6. / MassOfNucleus2 - 77. / 18. / MassOfNucleus2;
+    r1 = -2. / 3. / MassOfNucleus + 7. * W_0 / 9. / MassOfNucleus2;
+    r2 = 10. / 3. / MassOfNucleus - 28. * W_0 / 9. / MassOfNucleus2;
+    r3 = 88. / 9. / MassOfNucleus2;
+
+    return 1 + r0 + r1 / W + r2 * W + r3 * W * W;
+}
+
+G4double
+MySpectrumGenerator::UCorrections(G4double p_e) {
+    //from D.H. Wilkinson, Methodology for superallowed Fermi-decay, part II, NIM A(335) (1993) 182, at p.187
+    G4double mat[3][3];
+
+    mat[0][0] = -5.6e-5;
+    mat[0][1] = -4.94e-5;
+    mat[0][2] = 6.23e-8;
+    mat[1][0] = 5.17e-6;
+    mat[1][1] = 2.517e-6;
+    mat[1][2] = 2.00e-8;
+    mat[2][0] = -9.17e-8;
+    mat[2][1] = 5.53e-9;
+    mat[2][2] = 1.25e-10;
+
+    G4double result = 1;
+    for(G4int i = 0; i < 3; i++) {
+        G4double tempres = 0;
+        for(G4int j = 0; j < 3; j++) {
+            tempres += mat[i][j] * pow(DaughterProtonNumber, j);
+        }
+        result += tempres * pow(p_e, i);
+    }
+    return result;
+}
+
+G4double
+MySpectrumGenerator::CCorrections(G4double W) {
+    G4double C0, C1, C2;
+
+    C0 = -233. * pow(fine_structure_const * DaughterProtonNumber, 2) / 630. - pow(W_0 * R, 2) / 5. + 2 * W_0 * R * fine_structure_const * DaughterProtonNumber / 35;
+    C1 = -21. * R * fine_structure_const * DaughterProtonNumber / 35. + 4. / 9. * W_0 * R * R;
+    C2 = -4. / 9. * R * R;
+
+    return 1 + C0 + C1 * W + C2 * W * W;
+}
+
+G4double
+MySpectrumGenerator::L0Corrections(G4double W) {
+    G4double sum = 0;
+    for(G4int i = 1; i < 7; i++)
+        sum += a[i] * pow(W * R, i);
+
+    return (1 + 13. / 60. * pow(fine_structure_const * DaughterProtonNumber, 2) - W * R * fine_structure_const * DaughterProtonNumber * (41. - 26. * gamma1) / 15. / (2. * gamma1 - 1) - fine_structure_const * DaughterProtonNumber * R * gamma1 * (17. - 2. * gamma1) / 30. / W / (2. * gamma1 - 1) + a[0] * R / W + 0.41 * (R - 0.0164) * pow(fine_structure_const * DaughterProtonNumber, 4.5) + sum) * 2 / (1 + gamma1);
+
+}
+
+
+void
+  MySpectrumGenerator::DumpSpectrum(G4String fname) {
+    G4cout << "Writing spectrum shape into " << fname << G4endl;
+    ofstream outp(fname, ios_base::trunc);
+
+    for(G4int en = 1; en <= EndPointEnergy; en++) {
+        outp << en << "\t" << emprob[en] << G4endl;
+    }
+
+    G4cout << "Finished! " << G4endl;
+}
+
+void
+  MySpectrumGenerator::DumpCC(G4String fname) {
+    G4cout << "Writing C corrections into " << fname << G4endl;
+    ofstream outp(fname, ios_base::trunc);
+
+    for(G4int en = 1; en <= EndPointEnergy; en++) {
+        outp << en << "\t" << CCorrections(en * keV / electron_mass_c2 + 1) << G4endl;
+    }
+
+    G4cout << "Finished! " << G4endl;
+}
+
+void
+  MySpectrumGenerator::DumpL0(G4String fname) {
+    G4cout << "Writing L0 corrections into " << fname << G4endl;
+    ofstream outp(fname, ios_base::trunc);
+
+    for(G4int en = 1; en <= EndPointEnergy; en++) {
+        outp << en << "\t" << L0Corrections(en * keV / electron_mass_c2 + 1) << G4endl;
+    }
+
+    G4cout << "Finished! " << G4endl;
+}
+
+void
+  MySpectrumGenerator::DumpRN(G4String fname) {
+    G4cout << "Writing Recoiling nucleus corrections into " << fname << G4endl;
+    ofstream outp(fname, ios_base::trunc);
+
+    for(G4int en = 1; en <= EndPointEnergy; en++) {
+        outp << en << "\t" << RecoilingNucleus(en * keV / electron_mass_c2 + 1) << G4endl;
+    }
+
+    G4cout << "Finished! " << G4endl;
+}
+
+void
+  MySpectrumGenerator::SetMass(double mass) {
+    MassNumber = mass;
+    Initialize();
+}
+
+void
+  MySpectrumGenerator::SetDaughterZ(double Z) {
+    DaughterProtonNumber = Z;
+    Initialize();
+}
+
+void
+  MySpectrumGenerator::SetEndPointEnergy(double e0) {
+    EndPointEnergy = e0 / keV;
+    Initialize();
+}
+
+
+void
+  MySpectrumGenerator::InitFormFactors() {
+    fa = 1;
+    fb = 0;
+    fc = 1;
+    fd = 0;
+    ff = 0;
+    fg = 0;
+    fh = 0;
+    fj2 = 0;
+    fj3 = 0;
+
+}
+
+void
+  MySpectrumGenerator::ReadFormFactors(G4String fname) {
+    //read them from the supplied file
+    ifstream isff(fname, ios_base::in);
+    G4cout << endl << "Reading form factors from " << fname << endl;
+
+    char
+      temp[100];
+    double
+      dtemp;
+    isff.getline(temp, 100);
+    isff >> dtemp;              //A
+    if(dtemp != MassNumber) {
+        cout << "Set up the correct ion first by calling SetMass" << endl;
+        exit(91);
+    }
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> dtemp;              //Z
+    if(dtemp != DaughterProtonNumber) {
+        cout << "Set up the correct ion first by calling SetDaughterZ" << endl;
+        exit(92);
+    }
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> dtemp;
+    if(dtemp != EndPointEnergy) {
+        cout << "Set up the correct ion first by calling SetEndpointEnergy" << endl;
+        exit(93);
+    }
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> fa;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> fb;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> fc;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> ff;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> fg;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> fh;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> fj2;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+    isff >> fj3;
+    isff.getline(temp, 100);
+    isff.getline(temp, 100);
+
+    printf("a=%f, b=%f, c=%f, d=%f, f=%f\n", fa, fb, fc, fd, ff);
+    printf("g=%f, h=%f, j2=%f, j3=%f\n", fg, fh, fj2, fj3);
+
+}
+
+void
+  MySpectrumGenerator::DoFormFactors(G4bool ff) {
+    if((!formfactors) && (!ff))
+        return;                 //nothing to be done
+    formfactors = ff;
+    Initialize();
+
+}
+
+
+G4double
+MySpectrumGenerator::H0(G4double En) {
+    G4double E0 = (EndPointEnergy + electron_mass_c2) / keV;    //full energy in keV
+    En /= keV;
+    G4double NMass = MassNumber * 938272;
+    G4double RR = 1.25 / 197.3269631e3 * pow(MassNumber, 1. / 3.);
+    G4double XX = 9 * RR * pi / 140.0;
+    G4double me = electron_mass_c2 / keV;
+
+    //G4cout<< "RR: " << RR << G4endl;
+    //G4cout<< "XX: " << XX << G4endl;
+
+    double
+      t1 = fa * fa + fc * fc;
+    double
+      t3 = -2. * E0 / 3. / NMass * fc * (fc + fd + (-ffbeta) * fb);
+    double
+      t4 = 2. * En / 3. / NMass * (3 * fa * fa + fc * (5. * fc + 2. * (-ffbeta) * fb));
+    double
+      t5 = -me * me / 3. / NMass / En * (2. * fc * fc + fc * (fd + 2. * (-ffbeta) * fb) - fh * fc * (E0 - En) / 2. / NMass);
+
+    return t1 + t3 + t4 + t5;
+}
+
+
+
+void
+  MySpectrumGenerator::DumpH0(G4String fname) {
+    G4cout << "Writing H0 into " << fname << G4endl;
+    ofstream outp(fname, ios_base::trunc);
+
+    double
+      normfact = H0(1.0 * keV);
+
+    for(G4int en = 1; en <= EndPointEnergy; en++) {
+        outp << en << "\t" << H0(en * keV) / normfact << G4endl;
+    }
+
+    G4cout << "Finished! " << G4endl;
+}
+
+void
+  MySpectrumGenerator::DumpRadCorr(G4String fname) {
+    G4cout << "Writing Radiative Corrections into " << fname << G4endl;
+    ofstream outp(fname, ios_base::trunc);
+
+    for(G4int en = 1; en <= EndPointEnergy; en++) {
+        outp << en << "\t" << RadiativeCorrections(en * keV / electron_mass_c2 + 1) << G4endl;
+    }
+}
+
+
+#undef NRANSI
+#undef ITMAX
+#undef CGOLD
+#undef ZEPS
+#undef SHFT
