@@ -20,7 +20,7 @@ void
         //ispectr >> info;
         cout << info << endl;
         char * pch;
-        pch = strstr(line, "NON-Continuous");
+        pch = strstr(info, "NON-Continuous");
         if (pch){
            isContinuous = false; 
         }
@@ -76,7 +76,7 @@ MySpectrumGenerator::GetRandomEnergy() {
     	return RandomEnergy;        //this is just a number. one should multiply it with keV
     }
     else{
-        RandomOrdinate = G4UniformRand() * totalIntensity;
+        G4double RandomOrdinate = G4UniformRand() * totalIntensity;
         G4double addedIntensity = 0.;
         G4int index = 0;
         for(std::vector<G4double>::iterator it = CEIntensities.begin(); it != CEIntensities.end(); ++it){
@@ -86,6 +86,6 @@ MySpectrumGenerator::GetRandomEnergy() {
             }
             index += 1;
         }
-        return CESpect[index];
+        return CESpectr[index];
     }
 }
