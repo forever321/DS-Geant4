@@ -23,8 +23,9 @@ void
         pch = strstr(info, "NON-Continuous");
         if (pch){
            isContinuous = false; 
+           cout << "Decay is not continuous" << endl;
         }
-        delete pch;
+        //delete pch;
     }
 
     if (isContinuous){
@@ -46,6 +47,7 @@ void
         }
     }
     else {
+       cout << "Reading in CE data" << endl;
        double energy, intensity;
        while(ispectr >> energy >> intensity){
            CESpectr.push_back(energy);
@@ -65,7 +67,6 @@ MySpectrumGenerator::~MySpectrumGenerator() {
 
 G4double
 MySpectrumGenerator::GetRandomEnergy() {
-    cout << isContinuous << endl;
     if(isContinuous){
     	G4double RandomEnergy, RandomOrdinate;
     	//std::cout << "Max En: "<< EndPointEnergy<<endl;
