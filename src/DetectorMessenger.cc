@@ -20,7 +20,7 @@ Detector(HPGeDet) {
     SourceCmd = new G4UIcmdWithAString("/twodets/geometry/SelectSource", this);
     SourceCmd->SetGuidance("Select the source.");
     SourceCmd->SetParameterName("Choice of Source", false);
-    SourceCmd->SetCandidates("Ca Bi");
+    SourceCmd->SetCandidates("Ca Bi Ba");
     SourceCmd->AvailableForStates(G4State_PreInit);
 
     UpdateCmd = new G4UIcmdWithoutParameter("/twodets/geometry/update", this);
